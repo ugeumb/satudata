@@ -1,0 +1,1 @@
+window.U1D_CONFIG={API_URL:'https://script.google.com/macros/s/AKfycbxmWassulBOpcS2y9f5wlwr_qgMPbmWgvHtci_Ab9cz3Wh4jxORzBnuxhtStu259wVYHg/exec'};
