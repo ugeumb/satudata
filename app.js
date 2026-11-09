@@ -20,7 +20,7 @@ const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:JSON.
 /* ================= state ================= */
 let DB=LS.get('u1d.db',null);
 if(!DB||DB.version!==window.SEED.version){const old=DB; DB=clone(window.SEED); if(old) mergeLocalOverSeed(old);}
-function mergeLocalOverSeed(old){COLL.forEach(c=>{const m=new Map((old[c]||[]).map(x=>[x.id,x]));DB[c]=DB[c].map(x=>m.get(x.id)||x);(old[c]||[]).forEach(x=>{if(!DB[c].some(y=>y.id===x.id))DB[c].push(x)})})}
+function mergeLocalOverSeed(old){COLL.forEach(c=>{if(c==='users')return;const m=new Map((old[c]||[]).map(x=>[x.id,x]));DB[c]=DB[c].map(x=>m.get(x.id)||x);(old[c]||[]).forEach(x=>{if(x.placeholder)return;if(!DB[c].some(y=>y.id===x.id))DB[c].push(x)})})}
 let SESSION=LS.get('u1d.session',null);
 let SETTINGS=LS.get('u1d.settings',{api:cfg.API_URL||'',since:0});
 if(cfg.API_URL&&!SETTINGS.api) SETTINGS.api=cfg.API_URL;
@@ -30,9 +30,9 @@ const API=()=>SETTINGS.api||'';
 const save=()=>LS.set('u1d.db',DB);
 const me=()=>SESSION&&DB.users.find(u=>u.id===SESSION.userId);
 const user=id=>DB.users.find(u=>u.id===id);
-const uname=id=>id==='group:pengarah'?'Pengarah (Rektor & WR I–IV)':(user(id)?user(id).short:'—');
+const uname=id=>id==='group:pengarah'?'Pimpinan (Rektor & WR) — tanpa akun':(user(id)?user(id).short:'—');
 const role=()=>me()?me().role:'';
-const isAdmin=()=>role()==='admin';
+const isAdmin=()=>role()==='admin'||role()==='superadmin';const isSuper=()=>role()==='superadmin';
 const isKoor=()=>role()==='koordinator';
 const myTeam=()=>me()?me().team:'';
 function stamp(it){it._u=Date.now();it._by=SESSION?SESSION.userId:'';return it}
@@ -42,13 +42,13 @@ function queue(coll,item){if(!API())return;OUTBOX=OUTBOX.filter(o=>!(o.c===coll&
 function logAct(text){put('log',{id:uid('l'),ts:Date.now(),by:SESSION?SESSION.userId:'',text});if(DB.log.length>300){DB.log=DB.log.slice(-300);save()}}
 
 /* ================= permissions (UX; server enforces too) ================= */
-function canEdit(coll,item){const m=me();if(!m)return false;if(m.role==='admin')return true;if(m.role==='pengarah')return false;
+function canEdit(coll,item){const m=me();if(!m)return false;if(isAdmin())return true;if(m.role==='pengarah')return false;
  if(coll==='tasks'){return item.owner===m.id||(m.role==='koordinator'&&(item.team===m.team))}
  if(coll==='indicators'){return item.owner===m.id||item.checker===m.id||(m.role==='koordinator'&&item.rank===m.team)}
  if(coll==='evidence'){return !item.id||item._by===m.id||m.role==='koordinator'}
  if(['master','requests','risks'].includes(coll))return m.role==='koordinator'||m.role==='anggota'&&coll!=='master';
  return false}
-const canAdd=coll=>{const m=me();return m&&m.role!=='pengarah'&&(coll==='evidence'||['requests','risks'].includes(coll)||m.role==='admin'||m.role==='koordinator')};
+const canAdd=coll=>{const m=me();return m&&m.role!=='pengarah'&&(isAdmin()||coll==='evidence'||['requests','risks'].includes(coll)||m.role==='koordinator')};
 
 /* ================= sync ================= */
 let syncTimer=null;
@@ -99,6 +99,7 @@ function parseCSV(t){const rows=[];let r=[],f='',q=false;t=t.replace(/^﻿/,'');
 const evOf=id=>DB.evidence.filter(e=>(e.refs||'').split(/[,\s;]+/).filter(Boolean).includes(id));
 const num=v=>{if(v==null||v==='')return NaN;return parseFloat(String(v).replace(/\./g,'').replace(',','.').replace(/[^0-9.\-]/g,''))};
 const parseNum=v=>{const s=String(v||'').trim();if(!s)return NaN;if(/^-?\d+(\.\d+)?$/.test(s))return parseFloat(s);return num(s)};
+function ansOf(i){const S=window.UIGM_SCHEMA;if(i.rank==='UIGM'&&S&&S[i.code]){const sc=S[i.code];if(sc.opts.length&&i.sel!==''&&i.sel!=null){const o=sc.opts[+i.sel];const t=o?o.t:'';return (sc.withNum&&i.val!==''?i.val+(i.vunit?' '+i.vunit:'')+' · ':'')+(t.length>36?t.slice(0,34)+'…':t)}}return i.val!==''?String(i.val)+(i.vunit&&i.vunit.length<8?' '+i.vunit:''):''}
 function consistency(ind){if(!ind.masterKey)return null;const m=DB.master.find(x=>x.key===ind.masterKey);if(!m||m.val==='')return {ok:null,m};if(ind.val==='')return {ok:null,m,empty:true};const a=parseNum(ind.val),b=parseNum(m.val);const same=(!isNaN(a)&&!isNaN(b))?a===b:String(ind.val).trim()===String(m.val).trim();return {ok:same,m}}
 function progress(rank){const l=DB.indicators.filter(i=>i.rank===rank);const c={kosong:0,draft:0,dicek:0,valid:0,final:0};l.forEach(i=>c[i.status]++);const t=l.length;const v=c.valid+c.final;return {t,c,filled:t-c.kosong,valid:v,pct:t?Math.round(v/t*100):0,fp:t?Math.round((t-c.kosong)/t*100):0}}
 function taskProg(rank){const l=DB.tasks.filter(x=>x.rank===rank);const d=l.filter(x=>x.status==='selesai').length;return {t:l.length,d,pct:l.length?Math.round(d/l.length*100):0}}
@@ -107,12 +108,12 @@ function statusRule(ind,next){ // gate untuk status
  const m=me();const own=ind.owner===m.id,chk=ind.checker===m.id,lead=isAdmin()||(isKoor()&&ind.rank===m.team);
  if(next==='kosong'||next==='draft'||next==='dicek'){if(!(own||chk||lead))return 'Anda bukan pemilik/pemeriksa indikator ini';}
  if(next==='dicek'||next==='valid'||next==='final'){if(String(ind.val).trim()==='')return 'Nilai/jawaban belum diisi';}
- if(next==='valid'||next==='final'){if(!(chk||lead))return 'Status Valid hanya dapat ditetapkan pemeriksa (checker) atau koordinator/admin — prinsip maker–checker';
+ if(next==='valid'||next==='final'){if(own&&!isSuper())return 'Pengisi data tidak boleh mengesahkan datanya sendiri (prinsip dua mata). Minta rekan tim menetapkan Valid.';
   if(ind.evReq&&evOf(ind.id).length===0)return 'Indikator ini mewajibkan bukti: tautkan minimal satu bukti di menu Bukti';
   const c=consistency(ind);if(c&&c.ok===false)return 'Nilai berbeda dari Data Inti ('+c.m.val+'). Samakan dulu atau perbarui Data Inti.'}
- if(next==='final'&&!(isAdmin()||(isKoor()&&ind.rank===m.team)))return 'Status Final hanya oleh koordinator/admin';
+ if(next==='final'&&!isAdmin())return 'Status Final hanya oleh admin';
  return ''}
-window.U1D={DB:()=>DB,sync};
+window.U1D={DB:()=>DB,sync};if(!window.U1D)window.U1D={};
 
 /* ================= views ================= */
 const U={task:{who:'me',rank:'ALL',st:'aktif'},repo:{q:'',g:'',own:'',st:'',flag:''},ev:{q:'',rank:''},cal:{rank:'ALL',past:false},risk:{type:'',st:''}};
@@ -187,19 +188,19 @@ V.repo=(rank)=>{rank=RK[rank]&&rank!=='ALL'?rank:'QS';const p=progress(rank),f=U
  const owners=[...new Set(DB.indicators.filter(i=>i.rank===rank).map(i=>i.owner))];
  const tabs=`<div class="tabs">${['QS','THE','UIGM'].map(r=>`<a class="${r===rank?'on':''}" href="#/repo/${r}" style="--c:${RK[r].c}">${RK[r].n}</a>`).join('')}<a href="#/master">Data Inti</a><a href="#/evidence">Bukti</a></div>`;
  return `<div class="ph"><h1>Repositori ${RK[rank].n}</h1><span class="muted sm">${RK[rank].full}</span></div>${tabs}
- <div class="card" style="--c:${RK[rank].c}"><div class="rh"><b>${p.valid}/${p.t} valid</b><span>${p.filled} terisi</span></div>${bar(p.c,p.t)}<div class="legend"><span><i class="s-v"></i>valid/final ${p.valid}</span><span><i class="s-c"></i>dicek ${p.c.dicek}</span><span><i class="s-d"></i>draft ${p.c.draft}</span><span><i class="s-k"></i>kosong ${p.c.kosong}</span></div>${rank==='UIGM'&&DB.indicators.some(i=>i.rank==='UIGM'&&i.placeholder)?`<div class="callout warn">Judul indikator UIGM masih placeholder (kode SI/EC/WS/WR/TR/ED/GD). Impor daftar resmi dari Panduan UIGM 2026 lewat <a href="#/admin">Admin › Impor CSV</a>.</div>`:''}${rank==='THE'?'<div class="callout info">SDG17 wajib + minimal 3 SDG lain (skor akhir: SDG17 22% + 3 SDG terbaik 26% masing-masing). Kerjakan 6 SDG prioritas lebih dulu.</div>':''}</div>
+ <div class="card" style="--c:${RK[rank].c}"><div class="rh"><b>${p.valid}/${p.t} valid</b><span>${p.filled} terisi</span></div>${bar(p.c,p.t)}<div class="legend"><span><i class="s-v"></i>valid/final ${p.valid}</span><span><i class="s-c"></i>dicek ${p.c.dicek}</span><span><i class="s-d"></i>draft ${p.c.draft}</span><span><i class="s-k"></i>kosong ${p.c.kosong}</span></div>${rank==='UIGM'&&U1D.ext.uigmHead?U1D.ext.uigmHead():''}${U1D.ext.pdfBar?U1D.ext.pdfBar(rank):''}${rank==='THE'?'<div class="callout info">SDG17 wajib + minimal 3 SDG lain (skor akhir: SDG17 22% + 3 SDG terbaik 26% masing-masing). Kerjakan 6 SDG prioritas lebih dulu.</div>':''}</div>
  <div class="filters wrap"><input id="r-q" type="search" placeholder="Cari kode atau kata kunci…" value="${esc(f.q)}">${userSelect('r-g',f.g,[['','Semua kelompok'],...groups.map(g=>[g,g])])}${userSelect('r-o',f.own,[['','Semua pemilik'],...owners.map(o=>[o,uname(o)]),['mine','Saya (pemilik/checker)']])}${userSelect('r-s',f.st,[['','Semua status'],...IND_ST.map(s=>[s,ST_LABEL[s]]),['flag','Bertanda anomali'],['needev','Butuh bukti, belum ada']])}</div>
  <div class="card flush" id="rlist" data-rank="${rank}">${repoList(rank)}</div>`};
 function repoList(rank){const f=U.repo,m=me();const q=f.q.toLowerCase();
  let l=DB.indicators.filter(i=>i.rank===rank);
  if(f.g)l=l.filter(i=>i.group===f.g);if(f.own==='mine')l=l.filter(i=>i.owner===m.id||i.checker===m.id);else if(f.own)l=l.filter(i=>i.owner===f.own);
  if(f.st==='flag')l=l.filter(i=>i.flag);else if(f.st==='needev')l=l.filter(i=>i.evReq&&!evOf(i.id).length);else if(f.st)l=l.filter(i=>i.status===f.st);
- if(q)l=l.filter(i=>(i.code+' '+i.title+' '+i.group+' '+i.val).toLowerCase().includes(q));
+ if(q)l=l.filter(i=>(i.code+' '+i.title+' '+i.group+' '+i.val+' '+ansOf(i)).toLowerCase().includes(q));
  if(!l.length)return '<p class="empty">Tidak ada indikator yang cocok.</p>';
  const lim=l.length>150?150:l.length;let last='';let out='';
  l.slice(0,lim).forEach(i=>{if(i.group!==last){last=i.group;const gl=DB.indicators.filter(x=>x.rank===rank&&x.group===i.group);const v=gl.filter(x=>['valid','final'].includes(x.status)).length;out+=`<div class="gh">${esc(i.group)} <small>${v}/${gl.length}</small></div>`}
   const ec=evOf(i.id).length;const c=consistency(i);
-  out+=`<div class="row ind" data-act="ind" data-id="${i.id}"><div class="code">${esc(i.code)}</div><div class="rb"><div class="tt">${esc(i.title)}</div><div class="meta"><span>${esc(uname(i.owner))}</span>${i.val!==''?`<b class="val">${esc(i.val)}${i.vunit&&i.vunit.length<8?' '+esc(i.vunit):''}</b>`:''}${i.flag?'<span class="late">anomali</span>':''}${i.evReq?`<span class="${ec?'okk':'muted'}">bukti ${ec}</span>`:''}${c&&c.ok===false?'<span class="late">beda dari Data Inti</span>':''}</div></div>${chip(ST_LABEL[i.status],stCls(i.status))}</div>`});
+  out+=`<div class="row ind" data-act="ind" data-id="${i.id}"><div class="code">${esc(i.code)}</div><div class="rb"><div class="tt">${esc(i.title)}</div><div class="meta"><span>${esc(uname(i.owner))}</span>${ansOf(i)?`<b class="val">${esc(ansOf(i))}</b>`:''}${i.flag?'<span class="late">anomali</span>':''}${i.evReq?`<span class="${ec?'okk':'muted'}">bukti ${ec}</span>`:''}${c&&c.ok===false?'<span class="late">beda dari Data Inti</span>':''}</div></div>${chip(ST_LABEL[i.status],stCls(i.status))}</div>`});
  if(l.length>lim)out+=`<p class="empty">Menampilkan ${lim} dari ${l.length}. Persempit pencarian.</p>`;return out}
 function indSheet(i){const m=me();const can=canEdit('indicators',i);const c=consistency(i);const evs=evOf(i.id);
  const lead=isAdmin()||(isKoor()&&i.rank===m.team);
@@ -297,8 +298,8 @@ V.people=()=>{const teams=['QS','THE','UIGM'];
  <div class="card"><div class="ch"><h2>Pimpinan & penanggung jawab</h2></div>${DB.users.filter(u=>u.team==='ALL').map(u=>`<div class="row"><div class="av" style="background:#0E5A3A">${esc(u.short.slice(0,1))}</div><div class="rb"><div class="tt">${esc(u.name)}</div><div class="meta"><span>${esc(u.title)}</span></div></div></div>`).join('')}</div>`};
 
 /* ---- Lainnya ---- */
-V.more=()=>{const items=[['#/master','Data Inti','Satu angka resmi lintas ranking'],['#/calendar','Kalender & Tenggat','Resmi vs internal, unduh .ics'],['#/requests','Permintaan Data ke Unit','Lacak data dari unit'],['#/risks','Risiko & Anomali','Pantau hambatan'],['#/people','Tim & Beban Kerja','Siapa memegang apa'],...(isAdmin()?[['#/admin','Admin','Server, pengguna, ekspor/impor']]:[]),['#/guide','Panduan & Pasang Aplikasi','Android, iPhone, cara kerja']];
- return `<div class="ph"><h1>Lainnya</h1></div><div class="card flush">${items.map(([h,t,d])=>`<a class="row lnkrow" href="${h}"><div class="rb"><div class="tt">${t}</div><div class="meta"><span>${d}</span></div></div><span class="chev">›</span></a>`).join('')}<div class="row" data-act="logout"><div class="rb"><div class="tt">Keluar</div><div class="meta"><span>${esc(me().name)}</span></div></div></div></div><p class="muted sm center">Satu Data UMB · versi 1.0</p>`};
+V.more=()=>{const items=[['#/search','Cari data & berkas','Cari jumlah dosen, luas kampus, bukti, dll.'],['#/pdf','Unduh PDF','Isian QS, THE, UIGM berlogo UMB'],['#/master','Data Inti','Satu angka resmi lintas ranking'],['#/calendar','Kalender & Tenggat','Resmi vs internal, unduh .ics'],['#/requests','Permintaan Data ke Unit','Lacak data dari unit'],['#/risks','Risiko & Anomali','Pantau hambatan'],['#/people','Tim & Beban Kerja','Siapa memegang apa'],...(isAdmin()?[['#/admin','Admin','Server, pengguna, ekspor/impor']]:[]),['#/guide','Panduan & Pasang Aplikasi','Android, iPhone, cara kerja'],['#chpw','Ubah kata sandi','Ganti kata sandi akun Anda']];
+ return `<div class="ph"><h1>Lainnya</h1></div><div class="card flush">${items.map(([h,t,d])=>`<a class="row lnkrow" href="${h}" ${h==='#chpw'?'data-act="chpw"':''}><div class="rb"><div class="tt">${t}</div><div class="meta"><span>${d}</span></div></div><span class="chev">›</span></a>`).join('')}<div class="row" data-act="logout"><div class="rb"><div class="tt">Keluar</div><div class="meta"><span>${esc(me().name)}</span></div></div></div></div><p class="muted sm center">Satu Data UMB · versi 1.0</p>`};
 V.guide=()=>`<div class="ph"><h1>Panduan</h1></div>
  <div class="card"><h2>Pasang sebagai aplikasi</h2><p><b>Android (Chrome):</b> buka alamat aplikasi → menu ⋮ → <b>Instal aplikasi</b> / <b>Tambahkan ke layar utama</b>.</p><p><b>iPhone/iPad (Safari):</b> buka alamat aplikasi di <b>Safari</b> → ketuk <b>Bagikan</b> → <b>Tambah ke Layar Utama</b>. (Chrome iOS versi lama tidak menampilkan opsi ini.)</p>${deferredPrompt?'<button class="btn pri" data-act="install">Pasang sekarang</button>':''}</div>
  <div class="card"><h2>Cara kerja singkat</h2><ol><li>Buka <b>Tugas</b>: lihat target, KPI, dan checklist Anda; centang bila selesai dan lampirkan tautan bukti.</li><li>Buka <b>Repositori</b>: isi nilai tiap indikator, hubungkan ke <b>Data Inti</b> bila angkanya dipakai ranking lain.</li><li>Unggah/tautkan <b>Bukti</b> dan kaitkan ke kode indikator.</li><li>Rekan satu tim (checker) memeriksa → status <b>Valid</b>. Koordinator menetapkan <b>Final</b> sebelum submit.</li></ol><p class="muted sm">Status Valid mensyaratkan: nilai terisi, bukti tertaut (bila wajib), dan nilai sama dengan Data Inti.</p></div>
@@ -309,13 +310,14 @@ V.admin=()=>{if(!isAdmin())return '<p class="empty">Hanya untuk admin.</p>';
  const log=DB.log.slice().sort((a,b)=>b.ts-a.ts).slice(0,25);
  return `<div class="ph"><h1>Admin</h1></div>
  <div class="card"><h2>Server (Google Apps Script)</h2><label class="fld"><span>Alamat Web App (akhiran /exec)</span><input id="a-api" value="${esc(SETTINGS.api)}" placeholder="https://script.google.com/macros/s/…/exec"></label><div class="btns left"><button class="btn" data-act="a-save">Simpan alamat</button><button class="btn" data-act="a-test">Uji koneksi</button><button class="btn pri" data-act="a-sync">Sinkronkan</button></div><p class="muted sm">Status: <span class="pill ${ST.sync==='ok'?'o':ST.sync==='lokal'?'l':'e'}">${esc(ST.sync)}</span> · antrean ${OUTBOX.length}</p><div class="btns left"><button class="btn" data-act="a-push">Kirim ulang seluruh data lokal ke server</button></div></div>
- <div class="card"><div class="ch"><h2>Pengguna</h2><button class="btn sm" data-act="a-newuser">+ Pengguna</button></div>${DB.users.map(u=>`<div class="row"><div class="rb"><div class="tt">${esc(u.name)}</div><div class="meta"><span>${esc(u.title)}</span>${chip(u.role,'g')}${chip(u.team,'g')}</div></div><button class="btn sm" data-act="a-user" data-id="${u.id}">Ubah</button><button class="btn sm" data-act="a-pin" data-id="${u.id}">PIN</button></div>`).join('')}</div>
+ <div class="card"><div class="ch"><h2>Pengguna</h2>${isSuper()?'<button class="btn sm" data-act="a-newuser">+ Pengguna</button>':''}</div>${DB.users.map(u=>`<div class="row"><div class="rb"><div class="tt">${esc(u.name)}</div><div class="meta"><span>${esc(u.username||'—')}</span>${chip(u.role==='superadmin'?'super admin':u.role,u.role==='superadmin'?'ok':'g')}${chip(u.team,'g')}</div></div>${isSuper()?`<button class="btn sm" data-act="a-user" data-id="${u.id}">Ubah</button><button class="btn sm" data-act="a-pw" data-id="${u.id}">Sandi</button>`:''}</div>`).join('')}</div>
  <div class="card"><h2>Data</h2><div class="btns left wrapb"><button class="btn" data-act="a-exp" data-v="json">Cadangan JSON</button><button class="btn" data-act="a-exp" data-v="indicators">CSV indikator</button><button class="btn" data-act="a-exp" data-v="tasks">CSV tugas</button><button class="btn" data-act="a-exp" data-v="evidence">CSV bukti</button><button class="btn" data-act="a-exp" data-v="master">CSV Data Inti</button></div>
   <h3>Impor</h3><p class="muted sm">CSV indikator: kolom <code>rank, code, group, title, fmt, owner, unit, evReq</code>. Baris dengan rank+code yang sudah ada akan memperbarui judul/kelompok (cocok untuk mengisi daftar resmi UIGM); selain itu ditambahkan. <code>owner</code> boleh nama pendek (mis. Rina).</p><input type="file" id="a-file" accept=".csv,.json,text/csv,application/json"><div class="btns left"><button class="btn" data-act="a-imp">Impor CSV indikator</button><button class="btn" data-act="a-impjson">Pulihkan JSON</button></div>
   <h3>Reset</h3><button class="btn danger" data-act="a-reset">Reset data lokal ke data awal</button></div>
  <div class="card"><h2>Log aktivitas</h2>${log.map(l=>`<div class="row"><div class="rb"><div class="tt sm">${esc(l.text)}</div><div class="meta"><span>${new Date(l.ts).toLocaleString('id-ID')}</span></div></div></div>`).join('')||'<p class="muted sm">Belum ada.</p>'}</div>`};
-function userSheet(u,isNew){formSheet(isNew?'Pengguna baru':'Pengguna',[{k:'name',l:'Nama lengkap + gelar',req:1},{k:'short',l:'Nama pendek',req:1},{k:'title',l:'Jabatan di Task Force'},{k:'role',l:'Peran',t:'select',opts:['admin','koordinator','anggota','pengarah']},{k:'team',l:'Tim',t:'select',opts:['ALL','QS','THE','UIGM']}],u,{onSave:v=>{put('users',Object.assign({},u,v));closeSheet();route(true)}})}
-function pinSheet(u){sheet(`<div class="sh-h"><h3>Atur PIN — ${esc(u.short)}</h3><button class="x" data-close>×</button></div><div class="sh-b"><label class="fld"><span>PIN baru (4–8 angka). Kosongkan untuk acak.</span><input id="pn" inputmode="numeric" maxlength="8"></label><div id="pn-out"></div></div><div class="btns"><span class="sp"></span><button class="btn" data-close>Tutup</button><button class="btn pri" id="pn-ok">Atur</button></div>`,s=>{$('#pn-ok',s).onclick=async()=>{if(!API()){toast('Hubungkan server dulu');return}try{const j=await call('setpin',{userId:u.id,pin:$('#pn',s).value.trim()});if(!j.ok)throw new Error(j.error||'gagal');$('#pn-out',s).innerHTML=`<div class="callout ok">PIN ${esc(u.short)}: <b class="pin">${esc(j.pin)}</b><br><small>Catat dan bagikan secara pribadi.</small></div>`}catch(e){toast(e.message)}}})}
+function userSheet(u,isNew){formSheet(isNew?'Pengguna baru':'Pengguna',[{k:'name',l:'Nama lengkap + gelar',req:1},{k:'short',l:'Nama pendek',req:1},{k:'username',l:'Nama pengguna (huruf kecil, tanpa spasi)',req:1},{k:'title',l:'Jabatan di Task Force'},{k:'role',l:'Peran',t:'select',opts:[['admin','Admin'],['superadmin','Super admin']]},{k:'team',l:'Tim',t:'select',opts:['ALL','QS','THE','UIGM']}],u,{onSave:v=>{v.username=v.username.toLowerCase().replace(/[^a-z0-9]/g,'');if(!v.username){toast('Nama pengguna tidak valid');return}if(DB.users.some(x=>x.id!==u.id&&x.username===v.username)){toast('Nama pengguna sudah dipakai');return}put('users',Object.assign({},u,v));closeSheet();route(true);if(isNew)toast('Tersimpan. Atur kata sandinya lewat tombol Sandi.')}})}
+function pwSheet(u){sheet(`<div class="sh-h"><h3>Kata sandi — ${esc(u.short)}</h3><button class="x" data-close>×</button></div><div class="sh-b"><label class="fld"><span>Kata sandi baru (min. 8 karakter). Kosongkan untuk dibuat acak.</span><input id="pn" autocomplete="off"></label><div id="pn-out"></div></div><div class="btns"><span class="sp"></span><button class="btn" data-close>Tutup</button><button class="btn pri" id="pn-ok">Atur</button></div>`,s=>{$('#pn-ok',s).onclick=async()=>{if(!API()){toast('Hubungkan server dulu');return}try{const j=await call('setpw',{userId:u.id,password:$('#pn',s).value.trim()});if(!j.ok)throw new Error(j.message||j.error||'gagal');$('#pn-out',s).innerHTML=`<div class="callout ok">Nama pengguna: <b>${esc(u.username)}</b><br>Kata sandi: <b class="pin">${esc(j.password)}</b><br><small>Catat dan bagikan secara pribadi.</small></div>`}catch(e){toast(e.message)}}})}
+function chpwSheet(){sheet(`<div class="sh-h"><h3>Ubah kata sandi</h3><button class="x" data-close>×</button></div><div class="sh-b"><label class="fld"><span>Kata sandi lama</span><input id="cp0" type="password" autocomplete="current-password"></label><label class="fld"><span>Kata sandi baru (min. 8 karakter)</span><input id="cp1" type="password" autocomplete="new-password"></label></div><div class="btns"><span class="sp"></span><button class="btn" data-close>Batal</button><button class="btn pri" id="cp-ok">Simpan</button></div>`,s=>{$('#cp-ok',s).onclick=async()=>{if(!API()){toast('Mode lokal tidak memakai kata sandi');return}try{const j=await call('changepw',{old:$('#cp0',s).value,new:$('#cp1',s).value});if(!j.ok)throw new Error(j.message||j.error||'gagal');closeSheet();toast('Kata sandi diganti')}catch(e){toast(e.message)}}})}
 function exportCSV(kind){const cols={indicators:['id','rank','group','code','title','fmt','owner','checker','unit','val','vunit','period','source','evReq','polReq','masterKey','status','note','flag'],tasks:['id','owner','team','rank','dueText','due','title','evidenceReq','status','link','note'],evidence:['id','rank','refs','title','type','link','date','period','note'],master:['key','label','val','vunit','period','unit','source','status']}[kind];
  const rows=[cols.join(',')].concat(DB[kind].map(x=>cols.map(c=>csvEsc(c==='owner'&&x[c]&&user(x[c])?user(x[c]).short:x[c])).join(',')));download('UMB_SatuData_'+kind+'_'+todayISO()+'.csv','﻿'+rows.join('\n'),'text/csv')}
 function importIndicators(text){const rows=parseCSV(text);if(rows.length<2){toast('CSV kosong');return}const h=rows[0].map(x=>x.trim().toLowerCase());const ix=k=>h.indexOf(k.toLowerCase());let add=0,upd=0;const byShort=n=>{const u=DB.users.find(u=>u.short.toLowerCase()===String(n).trim().toLowerCase()||u.id===n);return u?u.id:''};
@@ -326,25 +328,28 @@ function importIndicators(text){const rows=parseCSV(text);if(rows.length<2){toas
 async function pushAll(chunk=120){const ops=[];COLL.forEach(c=>DB[c].forEach(it=>{ops.push({c,item:Object.assign({},it,{_u:it._u||Date.now(),_by:it._by||SESSION.userId})})}));for(let i=0;i<ops.length;i+=chunk){const j=await call('push',{ops:ops.slice(i,i+chunk)});if(!j.ok)throw new Error(j.error||'gagal')}return ops.length}
 
 /* ---- login ---- */
-function renderLogin(){const el=$('#login');el.classList.add('on');$('#app').classList.add('hide');
- const users=DB.users.filter(u=>true);const hasApi=!!API();
+const normU=x=>String(x||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+function enter(userObj,token){if(!user(userObj.id))DB.users.push(userObj);SESSION={userId:userObj.id,token};LS.set('u1d.session',SESSION);$('#login').classList.remove('on');$('#app').classList.remove('hide');route();sync(true)}
+function renderLogin(){const el=$('#login');el.classList.add('on');$('#app').classList.add('hide');const hasApi=!!API();
  el.innerHTML=`<div class="lg-box"><img src="icons/logo-umb.png" alt="Logo Universitas Muhammadiyah Bengkulu" width="96" height="96"><h1>Satu Data UMB</h1><p>Repositori terintegrasi QS Asia · THE SIR · UI GreenMetric</p>
- <label class="fld"><span>Nama</span><select id="l-user">${users.map(u=>`<option value="${u.id}">${esc(u.name)} — ${esc(u.title)}</option>`).join('')}</select></label>
- ${hasApi?'<label class="fld"><span>PIN</span><input id="l-pin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="8"></label>':'<p class="muted sm">Mode lokal: data tersimpan di perangkat ini. Hubungkan server agar seluruh tim berbagi data.</p>'}
- <button class="btn pri block" id="l-go">Masuk</button>
- <details class="srv"><summary>Pengaturan server</summary><label class="fld"><span>Alamat Web App (/exec)</span><input id="l-api" value="${esc(SETTINGS.api)}" placeholder="https://script.google.com/macros/s/…/exec"></label><button class="btn sm" id="l-saveapi">Simpan</button><hr><label class="fld"><span>Setup Key (hanya untuk inisialisasi pertama oleh admin)</span><input id="l-key" type="password"></label><button class="btn sm" id="l-init">Inisialisasi server dengan data awal</button></details><div id="l-msg" class="muted sm"></div></div>`;
- $('#l-go').onclick=async()=>{const id=$('#l-user').value;const msg=$('#l-msg');
-  if(!API()){SESSION={userId:id,token:''};LS.set('u1d.session',SESSION);el.classList.remove('on');$('#app').classList.remove('hide');route();return}
-  msg.textContent='Memeriksa…';try{const j=await call('login',{userId:id,pin:$('#l-pin').value.trim()});if(!j.ok)throw new Error(j.message||'PIN salah');SESSION={userId:id,token:j.token};LS.set('u1d.session',SESSION);el.classList.remove('on');$('#app').classList.remove('hide');route();sync(true)}catch(e){msg.textContent=e.message}};
+ ${hasApi?`<form id="l-form"><label class="fld"><span>Nama pengguna</span><input id="l-u" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="username" value="${esc(LS.get('u1d.lastuser',''))}"></label><label class="fld"><span>Kata sandi</span><div class="pw"><input id="l-p" type="password" autocomplete="current-password"><button type="button" class="pwt" id="l-eye">Lihat</button></div></label><button class="btn pri block" id="l-go" type="submit">Masuk</button></form>`
+ :`<label class="fld"><span>Nama</span><select id="l-user">${DB.users.map(u=>`<option value="${u.id}">${esc(u.name)} — ${esc(u.title)}</option>`).join('')}</select></label><p class="muted sm">Mode lokal: data tersimpan di perangkat ini. Hubungkan server agar seluruh tim berbagi data.</p><button class="btn pri block" id="l-go" type="button">Masuk</button>`}
+ <details class="srv"><summary>Pengaturan server</summary><label class="fld"><span>Alamat Web App (/exec)</span><input id="l-api" value="${esc(SETTINGS.api)}" placeholder="https://script.google.com/macros/s/…/exec"></label><button class="btn sm" id="l-saveapi" type="button">Simpan</button></details><div id="l-msg" class="muted sm" role="status"></div></div>`;
+ const msg=$('#l-msg');
  $('#l-saveapi').onclick=()=>{SETTINGS.api=$('#l-api').value.trim();LS.set('u1d.settings',SETTINGS);renderLogin()};
- $('#l-init').onclick=async()=>{const msg=$('#l-msg');SETTINGS.api=$('#l-api').value.trim();LS.set('u1d.settings',SETTINGS);if(!API()){msg.textContent='Isi alamat Web App dulu';return}msg.textContent='Mengirim data awal…';
-  try{const data={};COLL.forEach(c=>data[c]=DB[c].map(it=>Object.assign({},it,{_u:Date.now(),_by:'setup'})));const j=await call('init',{setupKey:$('#l-key').value,data});if(!j.ok)throw new Error(j.message||j.error||'gagal');
-   msg.innerHTML='Server siap. <b>PIN awal</b> (catat & bagikan pribadi):<div class="pins">'+Object.keys(j.pins).map(k=>`<div>${esc(user(k)?user(k).short:k)}: <b>${esc(j.pins[k])}</b></div>`).join('')+'</div>'}catch(e){msg.textContent='Gagal: '+e.message}}}
+ if(!hasApi){$('#l-go').onclick=()=>{SESSION={userId:$('#l-user').value,token:''};LS.set('u1d.session',SESSION);el.classList.remove('on');$('#app').classList.remove('hide');route()};return}
+ $('#l-eye').onclick=()=>{const p=$('#l-p');const sh=p.type==='password';p.type=sh?'text':'password';$('#l-eye').textContent=sh?'Sembunyi':'Lihat'};
+ $('#l-form').onsubmit=async ev=>{ev.preventDefault();const un=normU($('#l-u').value),pw=$('#l-p').value;if(!un||!pw){msg.textContent='Isi nama pengguna dan kata sandi';return}
+  $('#l-go').disabled=true;msg.textContent='Memeriksa…';
+  try{let j=await call('login',{username:un,password:pw});
+   if(j.needInit){msg.textContent='Menyiapkan server untuk pertama kali (mengirim data awal)…';const data={};COLL.forEach(c=>data[c]=clone(window.SEED[c]).map(it=>Object.assign(it,{_u:Date.now(),_by:'setup'})));const r=await call('init',{username:un,password:pw,data});if(!r.ok)throw new Error(r.message||r.error||'Inisialisasi gagal');j=await call('login',{username:un,password:pw})}
+   if(!j.ok)throw new Error(j.message||'Nama pengguna atau kata sandi salah');LS.set('u1d.lastuser',un);enter(j.user,j.token)}
+  catch(e){msg.textContent=(e&&e.message)||'Gagal terhubung ke server'}finally{const b=$('#l-go');if(b)b.disabled=false}}}
 
 /* ================= router ================= */
-const NAV=[['home','Beranda','M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z'],['tasks','Tugas','M9 11l3 3 8-8M4 12v7a1 1 0 0 0 1 1h12'],['repo','Repositori','M4 5h16M4 12h16M4 19h16'],['evidence','Bukti','M21 12l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8'],['more','Lainnya','M5 12h.01M12 12h.01M19 12h.01']];
-const DESK=[['master','Data Inti'],['calendar','Kalender'],['requests','Permintaan Data'],['risks','Risiko & Anomali'],['people','Tim'],['admin','Admin'],['guide','Panduan']];
-function renderNav(cur){const grp={home:['home'],tasks:['tasks'],repo:['repo','master'],evidence:['evidence'],more:['more','calendar','requests','risks','people','admin','guide']};
+const NAV=[['home','Beranda','M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z'],['tasks','Tugas','M9 11l3 3 8-8M4 12v7a1 1 0 0 0 1 1h12'],['repo','Repositori','M4 5h16M4 12h16M4 19h16'],['search','Cari','M21 21l-4.3-4.3M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0z'],['more','Lainnya','M5 12h.01M12 12h.01M19 12h.01']];
+const DESK=[['search','Cari'],['pdf','Unduh PDF'],['evidence','Bukti'],['master','Data Inti'],['calendar','Kalender'],['requests','Permintaan Data'],['risks','Risiko & Anomali'],['people','Tim'],['admin','Admin'],['guide','Panduan']];
+function renderNav(cur){const grp={home:['home'],tasks:['tasks'],search:['search'],repo:['repo','master','evidence'],more:['pdf','more','calendar','requests','risks','people','admin','guide']};
  $('#nav').innerHTML=NAV.map(([k,t,d])=>`<a href="#/${k}" class="${(grp[k]||[]).includes(cur)?'on':''}"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg><span>${t}</span></a>`).join('')+'<div class="dsk">'+DESK.filter(([k])=>k!=='admin'||isAdmin()).map(([k,t])=>`<a href="#/${k}" class="${cur===k?'on':''}"><span>${t}</span></a>`).join('')+'</div>'}
 function route(soft){
  if(!SESSION||!me()){renderLogin();return}
@@ -375,7 +380,7 @@ document.addEventListener('click',async e=>{
  case 'task':taskSheet(by('tasks'));break;
  case 'newtask':newTask();break;
  case 'trank':U.task.rank=v;route(true);break;
- case 'ind':indSheet(by('indicators'));break;
+ case 'ind':{const it=by('indicators');(it.rank==='UIGM'&&U1D.ext.uigmSheet)?U1D.ext.uigmSheet(it):indSheet(it);break}
  case 'master':masterSheet(by('master'));break;
  case 'newmaster':masterSheet({id:uid('m_'),key:'',label:'',val:'',vunit:'',period:'',unit:'',source:'',owner:me().id,status:'kosong'},true);break;
  case 'applymaster':confirmBox('Isi semua indikator yang masih kosong dan terhubung ke Data Inti?',applyMaster);break;
@@ -398,9 +403,10 @@ document.addEventListener('click',async e=>{
  case 'a-test':{SETTINGS.api=$('#a-api').value.trim();try{const r=await fetch(API()+'?action=ping');const j=await r.json();toast(j.ok?'Terhubung: '+(j.name||'server'):'Server menjawab galat')}catch(err){toast('Tidak dapat terhubung')}break}
  case 'a-sync':sync(true);break;
  case 'a-push':confirmBox('Kirim seluruh data lokal ke server? Data server dengan id sama akan ditimpa.',async()=>{try{toast('Mengirim…');const n=await pushAll();toast(n+' item terkirim')}catch(err){toast(err.message)}});break;
- case 'a-newuser':userSheet({id:uid('u_'),name:'',short:'',title:'',role:'anggota',team:'QS'},true);break;
+ case 'a-newuser':userSheet({id:uid('u_'),name:'',short:'',username:'',title:'',role:'admin',team:'QS'},true);break;
  case 'a-user':userSheet(by('users'));break;
- case 'a-pin':pinSheet(by('users'));break;
+ case 'a-pw':pwSheet(by('users'));break;
+ case 'chpw':e.preventDefault();chpwSheet();break;
  case 'a-exp':v==='json'?download('UMB_SatuData_backup_'+todayISO()+'.json',JSON.stringify(DB),'application/json'):exportCSV(v);break;
  case 'a-imp':{const f=$('#a-file').files[0];if(!f){toast('Pilih berkas CSV');return}importIndicators(await f.text());break}
  case 'a-impjson':{const f=$('#a-file').files[0];if(!f){toast('Pilih berkas JSON');return}try{const o=JSON.parse(await f.text());if(!o.indicators)throw 0;confirmBox('Pulihkan dari cadangan? Data lokal akan diganti.',()=>{DB=o;DB.version=window.SEED.version;save();toast('Dipulihkan');route(true)})}catch(err){toast('Berkas JSON tidak valid')}break}
@@ -409,5 +415,5 @@ document.addEventListener('click',async e=>{
 $('#pill').addEventListener('click',()=>sync(true));
 $('#who').addEventListener('click',()=>{location.hash='#/more'});
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
-route();sync();
+Object.assign(window.U1D,{k:{get DB(){return DB},$,$$,esc,fmtD,todayISO,uid,put,remove,logAct,me,user,uname,isAdmin,isSuper,canEdit,statusRule,sheet,closeSheet,toast,chip,stCls,rkChip,RK,ST_LABEL,IND_ST,userOpts,evOf,consistency,progress,route,download,evidenceForm,call,API,V,U,bar,parseNum,confirmBox,masterSheet,indSheet,ansOf,fmtDate:fmtD},ext:{},start(){route();sync()}});
 })();

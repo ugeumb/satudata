@@ -89,3 +89,13 @@ code{background:#eee;padding:1px 5px;border-radius:5px;font-size:12px}
 @media print{#top,#nav,#sheet,#toast{display:none}}
 
 @media(min-width:900px){.gh{top:52px}}
+
+/* login, isian UIGM, pencarian, PDF */
+.pw{font-family:ui-monospace,Menlo,Consolas,monospace;background:#f1f3ee;padding:2px 6px;border-radius:6px;user-select:all}
+.guide{margin:8px 0;font-size:13px}.guide summary{cursor:pointer;color:var(--g,#0E5A3A);font-weight:600}.gtxt{padding:8px 0;color:#444;line-height:1.5;max-height:240px;overflow:auto}
+.trow{border:1px solid var(--line);border-radius:10px;padding:8px;margin:6px 0;background:#fafaf7}.trow .rn{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:12px;margin-bottom:4px}
+.tg{display:grid;grid-template-columns:1fr;gap:6px}.tf small{display:block;color:#666;font-size:11px}.tf input{width:100%}
+@media(min-width:640px){.tg{grid-template-columns:1fr 1fr}}
+.hero-s{border-left:4px solid #C79A1E}.hero-s small{color:#666}.hs-t{font-weight:600;margin:2px 0}.hs-v{font-size:26px;font-weight:800;color:#0E5A3A}.hs-v span{font-size:13px;font-weight:500;color:#666}
+.wrapb{flex-wrap:wrap;gap:6px}.btns.left{justify-content:flex-start}.pdfbar{margin-top:8px}.btn.danger{color:#b3261e}
+.stk{height:6px;background:#e8e8e2;border-radius:3px;overflow:hidden;margin:4px 0}.stk i{display:block;height:100%}

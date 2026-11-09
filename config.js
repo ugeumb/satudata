@@ -1,1 +1,1 @@
-window.U1D_CONFIG={API_URL:'https://script.google.com/macros/s/AKfycbxmWassulBOpcS2y9f5wlwr_qgMPbmWgvHtci_Ab9cz3Wh4jxORzBnuxhtStu259wVYHg/exec'};
+window.U1D_CONFIG={API_URL:'https://script.google.com/macros/s/AKfycbxmWassulBOpcS2y9f5wlwr_qgMPbmWgvHtci_Ab9cz3Wh4jxORzBnuxhtStu259wVYHg/exec',INST:{name:'Universitas Muhammadiyah Bengkulu',country:'Indonesia',web:'https://umb.ac.id'}};
