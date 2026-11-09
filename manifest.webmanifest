@@ -1,0 +1,23 @@
+{
+  "name": "Satu Data UMB — Task Force Pemeringkatan",
+  "short_name": "Satu Data UMB",
+  "description": "Repositori data terintegrasi, KPI, dan checklist QS Asia, THE SIR, dan UI GreenMetric",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#091321",
+  "theme_color": "#0E5A3A",
+  "lang": "id",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ],
+  "shortcuts": [
+    {"name": "Tugas saya", "url": "./#/tasks"},
+    {"name": "Repositori", "url": "./#/repo/QS"},
+    {"name": "Kalender", "url": "./#/calendar"}
+  ]
+}
